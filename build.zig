@@ -96,6 +96,37 @@ pub fn build(b: *std.Build) !void {
         &deps,
     );
 
+    // ghostty-vt C shim library (for cinterop consumers)
+    // Builds a small static lib exposing a C ABI over the VT engine.
+    const vt_c = blk: {
+        const lib = b.addStaticLibrary(.{
+            .name = "ghostty_vt_c",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/capi/vt_c.zig"),
+                .target = config.target,
+                .optimize = config.optimize,
+            }),
+        });
+        // Import the VT Zig module so the C shim can `@import("ghostty-vt")`
+        lib.root_module.addImport("ghostty-vt", mod.vt);
+        if (config.simd) {
+            lib.linkLibC();
+            lib.linkLibCpp();
+        }
+        // Install header and static lib
+        const install_hdr = b.addInstallFileWithDir(
+            b.path("include/ghostty_vt_c.h"),
+            .header,
+            "ghostty_vt_c.h",
+        );
+        b.getInstallStep().dependOn(&install_hdr.step);
+        if (config.emit_exe or config.app_runtime != .none or true) {
+            // Always install for convenience
+            b.installArtifact(lib);
+        }
+        break :blk lib;
+    };
+
     // Helpgen
     if (config.emit_helpgen) deps.help_strings.install();
 
