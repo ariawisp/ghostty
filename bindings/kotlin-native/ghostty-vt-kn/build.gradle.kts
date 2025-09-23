@@ -2,6 +2,9 @@ plugins {
     kotlin("multiplatform") version "2.0.21"
 }
 
+group = "org.ghostty"
+version = "0.1-SNAPSHOT"
+
 kotlin {
     macosArm64()
     sourceSets {
@@ -18,4 +21,3 @@ kotlin {
 // Notes:
 // - Run `zig build` in the Ghostty repo root before building this module.
 // - The cinterop def links against `zig-out/lib/libghostty_vt_c.a` and includes from `zig-out/include`.
-

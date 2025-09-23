@@ -513,6 +513,47 @@ export fn ghostty_vt_row_dirty_span(h: ?*c_void, row: u16, out_start: ?*u16, out
     return false;
 }
 
+// Bulk collectors (do not clear)
+export fn ghostty_vt_collect_dirty_rows(h: ?*c_void, out_rows: [*]u16, cap: usize) callconv(.C) usize {
+    if (h == null or cap == 0) return 0;
+    const s: *Session = @ptrCast(@alignCast(h.?));
+    var i: usize = 0;
+    var y: u16 = 0;
+    while (y < s.term.rows and i < cap) : (y += 1) {
+        const pin = s.term.screen.pages.pin(.{ .active = .{ .y = y, .x = 0 } }) orelse continue;
+        if (pin.node.data.isRowDirty(pin.y)) {
+            out_rows[i] = y;
+            i += 1;
+        }
+    }
+    return i;
+}
+
+export fn ghostty_vt_collect_dirty_spans(
+    h: ?*c_void,
+    out_rows: [*]u16,
+    out_start: [*]u16,
+    out_end: [*]u16,
+    cap: usize,
+) callconv(.C) usize {
+    if (h == null or cap == 0) return 0;
+    const s: *Session = @ptrCast(@alignCast(h.?));
+    var i: usize = 0;
+    var y: u16 = 0;
+    while (y < s.term.rows and i < cap) : (y += 1) {
+        var start: u16 = 0;
+        var end_: u16 = 0;
+        const dirty = compute_row_span_and_update(s, y, false, &start, &end_);
+        if (dirty) {
+            out_rows[i] = y;
+            out_start[i] = start;
+            out_end[i] = end_;
+            i += 1;
+        }
+    }
+    return i;
+}
+
 export fn ghostty_vt_row_cells(h: ?*c_void, row: u16, out_cells: [*]CCell, out_cap: usize) callconv(.C) usize {
     if (h == null or out_cap == 0) return 0;
     const s: *Session = @ptrCast(@alignCast(h.?));
@@ -764,6 +805,77 @@ export fn ghostty_vt_link_uri_scrollback(
     const got = s.term.screen.pages.getCell(pt) orelse return false;
     return write_link_uri(&s.term, &got.node.data, got.cell, out_utf8, out_cap, out_len);
 }
+
+fn link_span_in_row(
+    s: *Session,
+    page: *const vt.page.Page,
+    row: u16,
+    col: u16,
+    history: bool,
+    out_c0: *u16,
+    out_c1: *u16,
+) bool {
+    // Get id at (row,col)
+    const pt0: vt.point.Point = if (history)
+        .{ .history = .{ .x = col, .y = @intCast(row) } }
+    else
+        .{ .active = .{ .x = col, .y = row } };
+    const got0 = s.term.screen.pages.getCell(pt0) orelse return false;
+    const id = page.lookupHyperlink(got0.cell) orelse return false;
+    // Expand within same row
+    const cols: u16 = @intCast(s.term.cols);
+    var c0: u16 = col;
+    while (c0 > 0) : (c0 -= 1) {
+        const ptl: vt.point.Point = if (history)
+            .{ .history = .{ .x = c0 - 1, .y = @intCast(row) } }
+        else
+            .{ .active = .{ .x = c0 - 1, .y = row } };
+        const gl = s.term.screen.pages.getCell(ptl) orelse break;
+        if (page.lookupHyperlink(gl.cell) != id) break;
+    }
+    var c1: u16 = col;
+    while (c1 + 1 < cols) : (c1 += 1) {
+        const ptr: vt.point.Point = if (history)
+            .{ .history = .{ .x = c1 + 1, .y = @intCast(row) } }
+        else
+            .{ .active = .{ .x = c1 + 1, .y = row } };
+        const gr = s.term.screen.pages.getCell(ptr) orelse break;
+        if (page.lookupHyperlink(gr.cell) != id) break;
+    }
+    out_c0.* = c0;
+    out_c1.* = c1;
+    return true;
+}
+
+export fn ghostty_vt_link_span_grid_row(
+    h: ?*c_void,
+    row: u16,
+    col: u16,
+    out_col0: *u16,
+    out_col1: *u16,
+) callconv(.C) bool {
+    if (h == null) return false;
+    const s: *Session = @ptrCast(@alignCast(h.?));
+    const pin = s.term.screen.pages.pin(.{ .active = .{ .y = row, .x = col } }) orelse return false;
+    const page = &pin.node.data;
+    return link_span_in_row(s, page, row, col, false, out_col0, out_col1);
+}
+
+export fn ghostty_vt_link_span_scrollback_row(
+    h: ?*c_void,
+    index: usize,
+    col: u16,
+    out_col0: *u16,
+    out_col1: *u16,
+) callconv(.C) bool {
+    if (h == null) return false;
+    const s: *Session = @ptrCast(@alignCast(h.?));
+    const pt: vt.point.Point = .{ .history = .{ .x = col, .y = @intCast(index) } };
+    const got = s.term.screen.pages.getCell(pt) orelse return false;
+    const page = &got.node.data;
+    const row: u16 = @intCast(index);
+    return link_span_in_row(s, page, row, col, true, out_col0, out_col1);
+}
 const RowCache = struct {
     data: []u64,
     rows: u16,
@@ -940,4 +1052,26 @@ export fn ghostty_vt_kitty_keyboard_flags(h: ?*c_void) callconv(.C) u32 {
         return s.term.screen.kitty_keyboard.current().int();
     }
     return 0;
+}
+
+// Terminal state queries
+export fn ghostty_vt_reverse_colors(h: ?*c_void) callconv(.C) bool {
+    if (h) |ptr| {
+        const s: *Session = @ptrCast(@alignCast(ptr));
+        return s.term.modes.get(.reverse_colors);
+    }
+    return false;
+}
+
+export fn ghostty_vt_palette_rgba(h: ?*c_void, out_rgba: [*]u32, cap: usize) callconv(.C) usize {
+    if (h == null) return 256;
+    const s: *Session = @ptrCast(@alignCast(h.?));
+    const need: usize = @typeInfo(vt.color.Palette).array.len; // 256
+    if (cap < need) return need;
+    var i: usize = 0;
+    while (i < need) : (i += 1) {
+        const rgb = s.term.color_palette.colors[i];
+        out_rgba[i] = (@as(u32, 0xFF) << 24) | (@as(u32, rgb.r) << 16) | (@as(u32, rgb.g) << 8) | (@as(u32, rgb.b));
+    }
+    return need;
 }

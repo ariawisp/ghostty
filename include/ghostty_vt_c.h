@@ -84,12 +84,20 @@ bool     ghostty_vt_mode_mouse_motion(ghostty_vt_t);       // button or any-moti
 bool     ghostty_vt_mode_mouse_any_motion(ghostty_vt_t);   // any-motion mode specifically
 uint32_t ghostty_vt_kitty_keyboard_flags(ghostty_vt_t);    // current kitty keyboard flags as bitmask
 
+// Terminal state
+bool     ghostty_vt_reverse_colors(ghostty_vt_t);
+// Write current 256-color palette into out_rgba as 0xAARRGGBB; returns count (256) or required count when cap is insufficient
+size_t   ghostty_vt_palette_rgba(ghostty_vt_t, uint32_t* out_rgba, size_t cap);
+
 // Dirtiness per visible row (active area)
 bool ghostty_vt_row_dirty(ghostty_vt_t, uint16_t row);
 void ghostty_vt_row_clear_dirty(ghostty_vt_t, uint16_t row);
 void ghostty_vt_clear_all_dirty(ghostty_vt_t);
 // Optional: return a coarse dirty span. For now, returns full row when dirty.
 bool ghostty_vt_row_dirty_span(ghostty_vt_t, uint16_t row, uint16_t* out_start, uint16_t* out_end);
+// Bulk dirty collection helpers (do not clear):
+size_t ghostty_vt_collect_dirty_rows(ghostty_vt_t, uint16_t* out_rows, size_t cap);
+size_t ghostty_vt_collect_dirty_spans(ghostty_vt_t, uint16_t* out_rows, uint16_t* out_start, uint16_t* out_end, size_t cap);
 
 // Read one visible row into caller-allocated array. Returns number of cells
 // written (min of cols and out_cap). For each cell, the function allocates
@@ -142,6 +150,22 @@ bool ghostty_vt_link_uri_scrollback(
     char* out_utf8,
     size_t out_cap,
     size_t* out_len
+);
+
+// Link span (columns) around a point, same-row only.
+bool ghostty_vt_link_span_grid_row(
+    ghostty_vt_t,
+    uint16_t row,
+    uint16_t col,
+    uint16_t* out_col0,
+    uint16_t* out_col1
+);
+bool ghostty_vt_link_span_scrollback_row(
+    ghostty_vt_t,
+    size_t index,
+    uint16_t col,
+    uint16_t* out_col0,
+    uint16_t* out_col1
 );
 
 #ifdef __cplusplus
