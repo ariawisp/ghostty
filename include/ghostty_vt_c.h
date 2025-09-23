@@ -90,6 +90,38 @@ size_t ghostty_vt_row_cells_into(
     size_t* out_arena_used
 );
 
+// Scrollback APIs
+size_t ghostty_vt_scrollback_size(ghostty_vt_t);
+size_t ghostty_vt_scrollback_row_cells_into(
+    ghostty_vt_t,
+    size_t index, // 0 = oldest history row
+    ghostty_vt_cell_t* out_cells,
+    size_t out_cap,
+    char* text_arena,
+    size_t arena_cap,
+    size_t* out_arena_used
+);
+
+// Resolve hyperlink URIs
+// Grid (visible) row: returns true if a hyperlink exists at (row,col) and writes its URI.
+bool ghostty_vt_link_uri_grid(
+    ghostty_vt_t,
+    uint16_t row,
+    uint16_t col,
+    char* out_utf8,
+    size_t out_cap,
+    size_t* out_len
+);
+// Scrollback row by history index (0 = oldest)
+bool ghostty_vt_link_uri_scrollback(
+    ghostty_vt_t,
+    size_t index,
+    uint16_t col,
+    char* out_utf8,
+    size_t out_cap,
+    size_t* out_len
+);
+
 #ifdef __cplusplus
 }
 #endif

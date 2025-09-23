@@ -599,6 +599,120 @@ export fn ghostty_vt_row_cells_into(
     if (out_arena_used) |p| p.* = used;
     return n;
 }
+
+// Total number of rows in scrollback history (excludes visible active rows)
+export fn ghostty_vt_scrollback_size(h: ?*c_void) callconv(.C) usize {
+    if (h) |ptr| {
+        const s: *Session = @ptrCast(@alignCast(ptr));
+        var it = s.term.screen.pages.pageIterator(.right_down, .{ .history = .{} }, null);
+        var total: usize = 0;
+        while (it.next()) |chunk| total += (chunk.end - chunk.start);
+        return total;
+    }
+    return 0;
+}
+
+// Read a history row by index (0 = oldest history row)
+export fn ghostty_vt_scrollback_row_cells_into(
+    h: ?*c_void,
+    index: usize,
+    out_cells: [*]CCell,
+    out_cap: usize,
+    text_arena: [*]u8,
+    arena_cap: usize,
+    out_arena_used: ?*usize,
+) callconv(.C) usize {
+    if (h == null or out_cap == 0) return 0;
+    const s: *Session = @ptrCast(@alignCast(h.?));
+    const cols: usize = s.term.cols;
+    const n = if (out_cap < cols) out_cap else cols;
+    var used: usize = 0;
+    var i: usize = 0;
+    while (i < n) : (i += 1) {
+        const pt: vt.point.Point = .{ .history = .{ .x = @intCast(i), .y = @intCast(index) } };
+        const got = s.term.screen.pages.getCell(pt) orelse {
+            out_cells[i] = .{ .text = "", .text_len = 0, .fg_rgba = pack_rgba(default_fg(), 0xFF), .bg_rgba = 0, .width = 1, .underline = false, .strike = false, .inverse = false, .bold = false, .italic = false, .link_tag = 0 };
+            continue;
+        };
+
+        const page = &got.node.data;
+        const cell = got.cell;
+        const width: u8 = switch (cell.wide) { .narrow => 1, .wide => 2, .spacer_tail => 0, .spacer_head => 1 };
+
+        var text_slice: []const u8 = (&[_]u8{})[0..];
+        if (width != 0) {
+            text_slice = cell_text_into(@as([*]u8, text_arena)[0..arena_cap], &used, page, cell);
+        }
+        const style = if (cell.style_id == 0) vt.Style{} else page.styles.get(page.memory, cell.style_id).*;
+        const flags = style.flags;
+        const clr = cell_colors(&s.term, page, cell);
+        const link = cell_link_tag(page, cell);
+
+        out_cells[i] = .{
+            .text = if (text_slice.len == 0) "" else text_slice.ptr,
+            .text_len = text_slice.len,
+            .fg_rgba = clr.fg,
+            .bg_rgba = clr.bg,
+            .width = width,
+            .underline = flags.underline != .none,
+            .strike = flags.strikethrough,
+            .inverse = flags.inverse,
+            .bold = flags.bold,
+            .italic = flags.italic,
+            .link_tag = link,
+        };
+    }
+    if (out_arena_used) |p| p.* = used;
+    return n;
+}
+
+fn write_link_uri(
+    term: *const vt.Terminal,
+    page: *const vt.page.Page,
+    cell: *const vt.page.Cell,
+    out: [*]u8,
+    out_cap: usize,
+    out_len: *usize,
+) bool {
+    if (!cell.hyperlink) return false;
+    const id = page.lookupHyperlink(cell) orelse return false;
+    const link = page.hyperlink_set.get(page.memory, id);
+    const uri = link.uri.offset.ptr(page.memory)[0..link.uri.len];
+    out_len.* = uri.len;
+    if (out_cap < uri.len) return true; // inform required length
+    @memcpy(out[0..uri.len], uri);
+    return true;
+}
+
+export fn ghostty_vt_link_uri_grid(
+    h: ?*c_void,
+    row: u16,
+    col: u16,
+    out_utf8: [*]u8,
+    out_cap: usize,
+    out_len: *usize,
+) callconv(.C) bool {
+    if (h == null) return false;
+    const s: *Session = @ptrCast(@alignCast(h.?));
+    const pt: vt.point.Point = .{ .active = .{ .x = col, .y = row } };
+    const got = s.term.screen.pages.getCell(pt) orelse return false;
+    return write_link_uri(&s.term, &got.node.data, got.cell, out_utf8, out_cap, out_len);
+}
+
+export fn ghostty_vt_link_uri_scrollback(
+    h: ?*c_void,
+    index: usize,
+    col: u16,
+    out_utf8: [*]u8,
+    out_cap: usize,
+    out_len: *usize,
+) callconv(.C) bool {
+    if (h == null) return false;
+    const s: *Session = @ptrCast(@alignCast(h.?));
+    const pt: vt.point.Point = .{ .history = .{ .x = col, .y = index } };
+    const got = s.term.screen.pages.getCell(pt) orelse return false;
+    return write_link_uri(&s.term, &got.node.data, got.cell, out_utf8, out_cap, out_len);
+}
 const RowCache = struct {
     data: []u64,
     rows: u16,
