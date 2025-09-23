@@ -1,5 +1,5 @@
 const vt = @import("ghostty-vt");
-const helpers = @import("capi/vt_c/helpers.zig");
+const helpers = @import("helpers.zig");
 
 const FNV64_OFF: u64 = 0xcbf29ce484222325;
 const FNV64_PRIME: u64 = 1099511628211;
@@ -61,4 +61,3 @@ pub fn cell_fingerprint(term: *const vt.Terminal, page: *const vt.page.Page, cel
     h = fnv_add_byte(h, @as(u8, @intCast((v >> 24) & 0xFF)));
     return h;
 }
-

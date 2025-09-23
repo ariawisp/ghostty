@@ -1,9 +1,9 @@
 const vt = @import("ghostty-vt");
-const types = @import("capi/vt_c/types.zig");
-const SessionMod = @import("capi/vt_c/session.zig");
+const types = @import("types.zig");
+const SessionMod = @import("session.zig");
 const Session = SessionMod.Session;
-const RowCache = @import("capi/vt_c/rowcache.zig").RowCache;
-const fingerprint = @import("capi/vt_c/fingerprint.zig");
+const RowCache = @import("rowcache.zig").RowCache;
+const fingerprint = @import("fingerprint.zig");
 
 fn compute_row_span_and_update(sess: *Session, row: u16, update_cache: bool, out_start: *u16, out_end: *u16) bool {
     const cols: usize = sess.term.cols;
@@ -124,4 +124,3 @@ export fn ghostty_vt_collect_dirty_spans(
     }
     return i;
 }
-

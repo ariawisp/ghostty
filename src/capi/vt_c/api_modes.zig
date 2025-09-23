@@ -1,5 +1,5 @@
-const types = @import("capi/vt_c/types.zig");
-const Session = @import("capi/vt_c/session.zig").Session;
+const types = @import("types.zig");
+const Session = @import("session.zig").Session;
 
 export fn ghostty_vt_mode_bracketed_paste(h: ?*types.c_void) callconv(.C) bool {
     if (h) |ptr| {
@@ -48,4 +48,3 @@ export fn ghostty_vt_kitty_keyboard_flags(h: ?*types.c_void) callconv(.C) u32 {
     }
     return 0;
 }
-

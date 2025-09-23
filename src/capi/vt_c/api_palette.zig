@@ -1,7 +1,7 @@
-const types = @import("capi/vt_c/types.zig");
-const Session = @import("capi/vt_c/session.zig").Session;
+const types = @import("types.zig");
+const Session = @import("session.zig").Session;
 const vt = @import("ghostty-vt");
-const helpers = @import("capi/vt_c/helpers.zig");
+const helpers = @import("helpers.zig");
 
 export fn ghostty_vt_reverse_colors(h: ?*types.c_void) callconv(.C) bool {
     if (h) |ptr| {
@@ -35,4 +35,3 @@ export fn ghostty_vt_default_bg_rgba(h: ?*types.c_void) callconv(.C) u32 {
     const rgb = helpers.default_bg();
     return (@as(u32, 0xFF) << 24) | (@as(u32, rgb.r) << 16) | (@as(u32, rgb.g) << 8) | (@as(u32, rgb.b));
 }
-

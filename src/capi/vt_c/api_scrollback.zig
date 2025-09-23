@@ -1,6 +1,6 @@
-const types = @import("capi/vt_c/types.zig");
-const Session = @import("capi/vt_c/session.zig").Session;
-const helpers = @import("capi/vt_c/helpers.zig");
+const types = @import("types.zig");
+const Session = @import("session.zig").Session;
+const helpers = @import("helpers.zig");
 const vt = @import("ghostty-vt");
 
 export fn ghostty_vt_scrollback_size(h: ?*types.c_void) callconv(.C) usize {
@@ -66,4 +66,3 @@ export fn ghostty_vt_scrollback_row_cells_into(
     if (out_arena_used) |p| p.* = used;
     return n;
 }
-

@@ -1,8 +1,8 @@
 const std = @import("std");
 const vt = @import("ghostty-vt");
 const Allocator = std.mem.Allocator;
-const types = @import("capi/vt_c/types.zig");
-const RowCache = @import("capi/vt_c/rowcache.zig").RowCache;
+const types = @import("types.zig");
+const RowCache = @import("rowcache.zig").RowCache;
 
 pub const Session = struct {
     alloc: Allocator,
@@ -281,4 +281,3 @@ pub const Handler = struct {
 pub fn currentCache(sess: *Session) *RowCache {
     return if (sess.term.active_screen == .alternate) &sess.cache_alt else &sess.cache_primary;
 }
-

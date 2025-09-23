@@ -1,9 +1,9 @@
-const types = @import("capi/vt_c/types.zig");
-const SessionMod = @import("capi/vt_c/session.zig");
+const types = @import("types.zig");
+const SessionMod = @import("session.zig");
 const Session = SessionMod.Session;
-const helpers = @import("capi/vt_c/helpers.zig");
+const helpers = @import("helpers.zig");
 const vt = @import("ghostty-vt");
-const fingerprint = @import("capi/vt_c/fingerprint.zig");
+const fingerprint = @import("fingerprint.zig");
 
 export fn ghostty_vt_row_cells(h: ?*types.c_void, row: u16, out_cells: [*]types.CCell, out_cap: usize) callconv(.C) usize {
     if (h == null or out_cap == 0) return 0;
@@ -124,4 +124,3 @@ export fn ghostty_vt_row_cells_into(
     if (out_arena_used) |p| p.* = used;
     return n;
 }
-

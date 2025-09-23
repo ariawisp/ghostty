@@ -1,5 +1,5 @@
-const types = @import("capi/vt_c/types.zig");
-const Session = @import("capi/vt_c/session.zig").Session;
+const types = @import("types.zig");
+const Session = @import("session.zig").Session;
 const vt = @import("ghostty-vt");
 
 fn write_link_uri(
@@ -118,4 +118,3 @@ export fn ghostty_vt_link_span_scrollback_row(
     const row: u16 = @intCast(index);
     return link_span_in_row(s, page, row, col, true, out_col0, out_col1);
 }
-

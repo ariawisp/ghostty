@@ -1,7 +1,7 @@
 const std = @import("std");
 const vt = @import("ghostty-vt");
-const types = @import("capi/vt_c/types.zig");
-const Session = @import("capi/vt_c/session.zig").Session;
+const types = @import("types.zig");
+const Session = @import("session.zig").Session;
 
 export fn ghostty_vt_new(cols: u16, rows: u16, max_scrollback_bytes: usize) callconv(.C) ?*types.c_void {
     const alloc = std.heap.c_allocator;
@@ -75,4 +75,3 @@ export fn ghostty_vt_c_api_version(out_major: ?*u16, out_minor: ?*u16) callconv(
     if (out_major) |p| p.* = 1;
     if (out_minor) |p| p.* = 0;
 }
-
