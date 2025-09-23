@@ -112,6 +112,30 @@ pub fn build(b: *std.Build) !void {
         if (config.simd) {
             lib.linkLibC();
             lib.linkLibCpp();
+
+            // Also link and install SIMD deps so downstream consumers
+            // (e.g. Kotlin/Native) can just add -lghostty_vt_c -lsimdutf -lhighway -lutfcpp.
+            if (b.lazyDependency("simdutf", .{
+                .target = config.target,
+                .optimize = config.optimize,
+            })) |simdutf_dep| {
+                lib.linkLibrary(simdutf_dep.artifact("simdutf"));
+                b.installArtifact(simdutf_dep.artifact("simdutf"));
+            }
+            if (b.lazyDependency("highway", .{
+                .target = config.target,
+                .optimize = config.optimize,
+            })) |highway_dep| {
+                lib.linkLibrary(highway_dep.artifact("highway"));
+                b.installArtifact(highway_dep.artifact("highway"));
+            }
+            if (b.lazyDependency("utfcpp", .{
+                .target = config.target,
+                .optimize = config.optimize,
+            })) |utfcpp_dep| {
+                lib.linkLibrary(utfcpp_dep.artifact("utfcpp"));
+                b.installArtifact(utfcpp_dep.artifact("utfcpp"));
+            }
         }
         // Install header and static lib
         const install_hdr = b.addInstallFileWithDir(

@@ -67,6 +67,9 @@ pub fn build(b: *std.Build) !void {
         "-fno-cxx-exceptions",
         "-fno-slp-vectorize",
         "-fno-vectorize",
+        // Avoid undefined-behavior sanitizer to prevent downstream linker
+        // requirements for libclang_rt.ubsan.
+        "-fno-sanitize=undefined",
     });
     if (target.result.os.tag != .windows) {
         try flags.appendSlice(&.{

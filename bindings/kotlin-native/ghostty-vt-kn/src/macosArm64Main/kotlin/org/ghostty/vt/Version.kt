@@ -1,3 +1,4 @@
+@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
 package org.ghostty.vt
 
 import kotlinx.cinterop.*
@@ -10,4 +11,3 @@ object Version {
         maj.value.toInt() to min.value.toInt()
     }
 }
-

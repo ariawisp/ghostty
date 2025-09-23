@@ -37,6 +37,7 @@ const Session = struct {
         on_title: ?*const fn (*c_void, [*]const u8, usize) callconv(.C) void = null,
         on_clipboard_set: ?*const fn (*c_void, [*]const u8, usize) callconv(.C) void = null,
         on_bell: ?*const fn (*c_void) callconv(.C) void = null,
+        on_palette_changed: ?*const fn (*c_void) callconv(.C) void = null,
         ud: ?*c_void = null,
     } = .{},
     // per-screen fingerprint caches for precise dirty spans
@@ -198,6 +199,61 @@ const Handler = struct {
         if (data.len == 0) return;
         if (self.sess.events.on_clipboard_set) |cb| {
             if (self.sess.events.ud) |ud| cb(ud, data.ptr, data.len);
+        }
+    }
+
+    pub fn handleColorOperation(
+        self: *Handler,
+        op: vt.osc.color.Operation,
+        requests: *const vt.osc.color.List,
+        terminator: vt.osc.Terminator,
+    ) !void {
+        _ = op;
+        _ = terminator;
+        if (requests.count() == 0) return;
+        var changed = false;
+        var it = requests.constIterator(0);
+        while (it.next()) |req| {
+            switch (req.*) {
+                .set => |set| {
+                    switch (set.target) {
+                        .palette => |i| {
+                            self.sess.term.flags.dirty.palette = true;
+                            self.sess.term.color_palette.colors[i] = set.color;
+                            self.sess.term.color_palette.mask.set(i);
+                            changed = true;
+                        },
+                        .dynamic => |_| {}, // ignore for now
+                        .special => {},
+                    }
+                },
+                .reset => |target| switch (target) {
+                    .palette => |i| {
+                        self.sess.term.flags.dirty.palette = true;
+                        self.sess.term.color_palette.colors[i] = self.sess.term.default_palette[i];
+                        self.sess.term.color_palette.mask.unset(i);
+                        changed = true;
+                    },
+                    .dynamic => |_| {},
+                    .special => {},
+                },
+                .reset_palette => {
+                    var mask_it = self.sess.term.color_palette.mask.iterator(.{});
+                    while (mask_it.next()) |i| {
+                        self.sess.term.flags.dirty.palette = true;
+                        self.sess.term.color_palette.colors[i] = self.sess.term.default_palette[i];
+                    }
+                    self.sess.term.color_palette.mask = .initEmpty();
+                    changed = true;
+                },
+                .reset_special => {},
+                .query => |_| {},
+            }
+        }
+        if (changed) {
+            if (self.sess.events.on_palette_changed) |cb| {
+                if (self.sess.events.ud) |ud| cb(ud);
+            }
         }
     }
 
@@ -388,6 +444,7 @@ const EventsC = extern struct {
     on_title: ?*const fn (*c_void, [*]const u8, usize) callconv(.C) void,
     on_clipboard_set: ?*const fn (*c_void, [*]const u8, usize) callconv(.C) void,
     on_bell: ?*const fn (*c_void) callconv(.C) void,
+    on_palette_changed: ?*const fn (*c_void) callconv(.C) void,
 };
 
 export fn ghostty_vt_set_events(h: ?*c_void, ev: ?*const EventsC, ud: ?*c_void) callconv(.C) void {
@@ -397,6 +454,7 @@ export fn ghostty_vt_set_events(h: ?*c_void, ev: ?*const EventsC, ud: ?*c_void) 
             s.events.on_title = p.on_title;
             s.events.on_clipboard_set = p.on_clipboard_set;
             s.events.on_bell = p.on_bell;
+            s.events.on_palette_changed = p.on_palette_changed;
             s.events.ud = ud;
         } else {
             s.events = .{};
@@ -582,11 +640,8 @@ export fn ghostty_vt_row_cells(h: ?*c_void, row: u16, out_cells: [*]CCell, out_c
         const text_slice = cell_text_alloc(s.alloc, page, cell) catch "";
 
         // style flags
-        // Per-cell style flags
-        const style = if (cell.style_id == 0)
-            vt.Style{}
-        else
-            page.styles.get(page.memory, cell.style_id).*;
+
+        const style = if (cell.style_id == 0) vt.Style{} else page.styles.get(page.memory, cell.style_id).*;
         const flags = style.flags;
         const clr = cell_colors(&s.term, page, cell);
         const link = cell_link_tag(page, cell);
@@ -908,51 +963,46 @@ fn currentCache(sess: *Session) *RowCache {
 
 const FNV64_OFF: u64 = 0xcbf29ce484222325;
 const FNV64_PRIME: u64 = 1099511628211;
-inline fn fnv1a64_add(h: u64, b: u8) u64 {
-    return (h ^ @as(u64, b)) * FNV64_PRIME;
+inline fn fnv_add_byte(h: u64, b: u8) u64 {
+    return (h ^ @as(u64, b)) *% FNV64_PRIME;
 }
-inline fn hash_u32(h: u64, v: u32) u64 {
-    var r = h;
-    var x = v;
-    var i: u32 = 0;
-    while (i < 4) : (i += 1) {
-        r = fnv1a64_add(r, @as(u8, @intCast(x & 0xFF)));
-        x >>= 8;
-    }
-    return r;
-}
-inline fn hash_u8(h: u64, v: u8) u64 {
-    return fnv1a64_add(h, v);
-}
-
 fn cell_fingerprint(term: *const vt.Terminal, page: *const vt.page.Page, cell: *const vt.page.Cell) u64 {
     var h: u64 = FNV64_OFF;
-    const width: u8 = switch (cell.wide) {
-        .narrow => 1,
-        .wide => 2,
-        .spacer_tail => 0,
-        .spacer_head => 1,
-    };
-    h = hash_u8(h, width);
-    // Text codepoints
+    const width: u8 = switch (cell.wide) { .narrow => 1, .wide => 2, .spacer_tail => 0, .spacer_head => 1 };
+    h = fnv_add_byte(h, width);
     if (width != 0) {
         const cp: u32 = @intCast(cell.codepoint());
-        h = hash_u32(h, cp);
-        if (cell.hasGrapheme()) {
-            if (page.lookupGrapheme(cell)) |slice| {
-                const cps = slice;
-                for (cps) |gcp| h = hash_u32(h, @intCast(gcp));
+        h = fnv_add_byte(h, @as(u8, @intCast(cp & 0xFF)));
+        h = fnv_add_byte(h, @as(u8, @intCast((cp >> 8) & 0xFF)));
+        h = fnv_add_byte(h, @as(u8, @intCast((cp >> 16) & 0xFF)));
+        h = fnv_add_byte(h, @as(u8, @intCast((cp >> 24) & 0xFF)));
+    }
+    if (width != 0 and cell.hasGrapheme()) {
+        if (page.lookupGrapheme(cell)) |slice| {
+            const cps = slice;
+            var i: usize = 0;
+            while (i < cps.len) : (i += 1) {
+                const v: u32 = @intCast(cps[i]);
+                h = fnv_add_byte(h, @as(u8, @intCast(v & 0xFF)));
+                h = fnv_add_byte(h, @as(u8, @intCast((v >> 8) & 0xFF)));
+                h = fnv_add_byte(h, @as(u8, @intCast((v >> 16) & 0xFF)));
+                h = fnv_add_byte(h, @as(u8, @intCast((v >> 24) & 0xFF)));
             }
         }
     }
-    // Colors and flags
     const clr = cell_colors(term, page, cell);
-    h = hash_u32(h, clr.fg);
-    h = hash_u32(h, clr.bg);
-    const style = if (cell.style_id == 0)
-        vt.Style{}
-    else
-        page.styles.get(page.memory, cell.style_id).*;
+    const fg: u32 = clr.fg;
+    const bg: u32 = clr.bg;
+    h = fnv_add_byte(h, @as(u8, @intCast(fg & 0xFF)));
+    h = fnv_add_byte(h, @as(u8, @intCast((fg >> 8) & 0xFF)));
+    h = fnv_add_byte(h, @as(u8, @intCast((fg >> 16) & 0xFF)));
+    h = fnv_add_byte(h, @as(u8, @intCast((fg >> 24) & 0xFF)));
+    h = fnv_add_byte(h, @as(u8, @intCast(bg & 0xFF)));
+    h = fnv_add_byte(h, @as(u8, @intCast((bg >> 8) & 0xFF)));
+    h = fnv_add_byte(h, @as(u8, @intCast((bg >> 16) & 0xFF)));
+    h = fnv_add_byte(h, @as(u8, @intCast((bg >> 24) & 0xFF)));
+
+    const style = if (cell.style_id == 0) vt.Style{} else page.styles.get(page.memory, cell.style_id).*;
     const flags = style.flags;
     var fmask: u8 = 0;
     if (flags.underline != .none) fmask |= 1;
@@ -960,9 +1010,14 @@ fn cell_fingerprint(term: *const vt.Terminal, page: *const vt.page.Page, cell: *
     if (flags.inverse) fmask |= 4;
     if (flags.bold) fmask |= 8;
     if (flags.italic) fmask |= 16;
-    h = hash_u8(h, fmask);
+    h = fnv_add_byte(h, fmask);
+
     const link = cell_link_tag(page, cell);
-    h = hash_u32(h, link);
+    const v: u32 = link;
+    h = fnv_add_byte(h, @as(u8, @intCast(v & 0xFF)));
+    h = fnv_add_byte(h, @as(u8, @intCast((v >> 8) & 0xFF)));
+    h = fnv_add_byte(h, @as(u8, @intCast((v >> 16) & 0xFF)));
+    h = fnv_add_byte(h, @as(u8, @intCast((v >> 24) & 0xFF)));
     return h;
 }
 
@@ -1074,4 +1129,16 @@ export fn ghostty_vt_palette_rgba(h: ?*c_void, out_rgba: [*]u32, cap: usize) cal
         out_rgba[i] = (@as(u32, 0xFF) << 24) | (@as(u32, rgb.r) << 16) | (@as(u32, rgb.g) << 8) | (@as(u32, rgb.b));
     }
     return need;
+}
+
+export fn ghostty_vt_default_fg_rgba(h: ?*c_void) callconv(.C) u32 {
+    _ = h; // not dependent on handle today; keep signature consistent
+    const rgb = default_fg();
+    return (@as(u32, 0xFF) << 24) | (@as(u32, rgb.r) << 16) | (@as(u32, rgb.g) << 8) | (@as(u32, rgb.b));
+}
+
+export fn ghostty_vt_default_bg_rgba(h: ?*c_void) callconv(.C) u32 {
+    _ = h;
+    const rgb = default_bg();
+    return (@as(u32, 0xFF) << 24) | (@as(u32, rgb.r) << 16) | (@as(u32, rgb.g) << 8) | (@as(u32, rgb.b));
 }

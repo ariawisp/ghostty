@@ -709,17 +709,18 @@ pub fn addSimd(
         // hardware anyways.
         const HWY_DISABLED_TARGETS: c_int = HWY_AVX3_SPR | HWY_AVX3_ZEN4 | HWY_AVX3_DL | HWY_AVX3;
 
-        m.addCSourceFiles(.{
-            .files = &.{
+        const files = &.{
                 "src/simd/base64.cpp",
                 "src/simd/codepoint_width.cpp",
                 "src/simd/index_of.cpp",
                 "src/simd/vt.cpp",
-            },
-            .flags = if (target.result.cpu.arch == .x86_64) &.{
-                b.fmt("-DHWY_DISABLED_TARGETS={}", .{HWY_DISABLED_TARGETS}),
-            } else &.{},
-        });
+        };
+        if (target.result.cpu.arch == .x86_64) {
+            const fdef = b.fmt("-DHWY_DISABLED_TARGETS={}", .{HWY_DISABLED_TARGETS});
+            m.addCSourceFiles(.{ .files = files, .flags = &[_][]const u8{ fdef, "-fno-sanitize=undefined" } });
+        } else {
+            m.addCSourceFiles(.{ .files = files, .flags = &[_][]const u8{ "-fno-sanitize=undefined" } });
+        }
     }
 }
 

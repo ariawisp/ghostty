@@ -1,4 +1,1 @@
 headers = ghostty_vt_c.h
-compilerOpts = -I../../../../zig-out/include
-linkerOpts = -L../../../../zig-out/lib -lghostty_vt_c -lc++
-

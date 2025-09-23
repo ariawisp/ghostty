@@ -1,6 +1,5 @@
 package org.ghostty.vt
 
-@JvmInline
 value class KittyKeyboardFlags(private val bits: Int) {
     val disambiguate: Boolean get() = (bits and 0b00001) != 0
     val reportEvents: Boolean get() = (bits and 0b00010) != 0
@@ -12,4 +11,3 @@ value class KittyKeyboardFlags(private val bits: Int) {
         fun fromInt(v: Int) = KittyKeyboardFlags(v and 0x1F)
     }
 }
-

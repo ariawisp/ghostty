@@ -59,6 +59,7 @@ typedef struct ghostty_vt_events_s {
   void (*on_title)(void* userdata, const char* utf8, size_t len);
   void (*on_clipboard_set)(void* userdata, const char* utf8, size_t len);
   void (*on_bell)(void* userdata);
+  void (*on_palette_changed)(void* userdata);
 } ghostty_vt_events_t;
 
 void ghostty_vt_set_events(ghostty_vt_t, const ghostty_vt_events_t* events, void* userdata);
@@ -88,6 +89,8 @@ uint32_t ghostty_vt_kitty_keyboard_flags(ghostty_vt_t);    // current kitty keyb
 bool     ghostty_vt_reverse_colors(ghostty_vt_t);
 // Write current 256-color palette into out_rgba as 0xAARRGGBB; returns count (256) or required count when cap is insufficient
 size_t   ghostty_vt_palette_rgba(ghostty_vt_t, uint32_t* out_rgba, size_t cap);
+uint32_t ghostty_vt_default_fg_rgba(ghostty_vt_t);
+uint32_t ghostty_vt_default_bg_rgba(ghostty_vt_t);
 
 // Dirtiness per visible row (active area)
 bool ghostty_vt_row_dirty(ghostty_vt_t, uint16_t row);

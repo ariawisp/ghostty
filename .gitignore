@@ -17,6 +17,25 @@ test/cases/**/*.actual.png
 flatpak/builddir/
 flatpak/repo/
 
+# Local toolchains or caches
+.tools/
+
+# Kotlin/Native build outputs
+bindings/kotlin-native/ghostty-vt-kn/build/
+
+# Gradle local caches
+.gradle/
+.idea/
+*.iml
+node_modules/
+
+# Xcode user and derived data (in case created outside macos/.gitignore)
+xcuserdata/
+DerivedData/
+
+# Xcode per-project build dir guard (macOS app)
+macos/build/
+
 glad.zip
 /Box_test.ppm
 /Box_test_diff.ppm

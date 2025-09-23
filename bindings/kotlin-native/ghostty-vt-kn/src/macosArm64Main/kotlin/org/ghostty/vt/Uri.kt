@@ -1,3 +1,4 @@
+@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
 package org.ghostty.vt
 
 import kotlinx.cinterop.*
@@ -12,4 +13,3 @@ internal object Uri {
         buf.readBytes(outLen.value.toInt()).decodeToString()
     }
 }
-

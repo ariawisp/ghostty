@@ -1,3 +1,4 @@
+@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
 package org.ghostty.vt
 
 import kotlinx.cinterop.*
@@ -15,6 +16,7 @@ class Session(
     private var onTitle: ((String) -> Unit)? = null
     private var onClipboard: ((String) -> Unit)? = null
     private var onBell: (() -> Unit)? = null
+    private var onPaletteChanged: (() -> Unit)? = null
 
     fun close() {
         selfRef?.dispose(); selfRef = null
@@ -41,10 +43,12 @@ class Session(
         onTitleChanged: ((String) -> Unit)? = null,
         onClipboardSet: ((String) -> Unit)? = null,
         onBellEvent: (() -> Unit)? = null,
+        onPaletteChangedEvent: (() -> Unit)? = null,
     ) {
         onTitle = onTitleChanged
         onClipboard = onClipboardSet
         onBell = onBellEvent
+        onPaletteChanged = onPaletteChangedEvent
         val s = handle ?: return
         if (selfRef == null) selfRef = StableRef.create(this)
         memScoped {
@@ -52,16 +56,18 @@ class Session(
             ev.on_title = Callbacks.titleCallback
             ev.on_clipboard_set = Callbacks.clipboardCallback
             ev.on_bell = Callbacks.bellCallback
+            ev.on_palette_changed = Callbacks.paletteChangedCallback
             ghostty_vt_set_events(s, ev.ptr, selfRef!!.asCPointer())
         }
     }
 
-    fun setEvents(ev: Events) = setEvents(ev.onTitleChanged, ev.onClipboardSet, ev.onBell)
+    fun setEvents(ev: Events) = setEvents(ev.onTitleChanged, ev.onClipboardSet, ev.onBell, ev.onPaletteChanged)
 
     internal fun _onWrite(bytes: ByteArray) { writer?.invoke(bytes) }
     internal fun _onTitle(text: String) { onTitle?.invoke(text) }
     internal fun _onClipboard(text: String) { onClipboard?.invoke(text) }
     internal fun _onBell() { onBell?.invoke() }
+    internal fun _onPaletteChanged() { onPaletteChanged?.invoke() }
 
     fun feed(bytes: ByteArray) {
         val s = handle ?: return
@@ -161,11 +167,11 @@ class Session(
     }
 
     fun linkUriOnGrid(row: Int, col: Int): String? = Uri.query { buf, cap, len ->
-        val s = handle ?: return@linkUriQuery false
+        val s = handle ?: return@query false
         ghostty_vt_link_uri_grid(s, row.toUShort(), col.toUShort(), buf, cap, len)
     }
     fun linkUriInScrollback(index: Int, col: Int): String? = Uri.query { buf, cap, len ->
-        val s = handle ?: return@linkUriQuery false
+        val s = handle ?: return@query false
         ghostty_vt_link_uri_scrollback(s, index.toULong(), col.toUShort(), buf, cap, len)
     }
 
@@ -197,6 +203,8 @@ class Session(
     fun kittyKeyboardFlags(): Int { val s = handle ?: return 0; return ghostty_vt_kitty_keyboard_flags(s).toInt() }
     fun kittyKeyboard(): KittyKeyboardFlags = KittyKeyboardFlags.fromInt(kittyKeyboardFlags())
     fun reverseColors(): Boolean { val s = handle ?: return false; return ghostty_vt_reverse_colors(s) }
+    fun defaultFgRgba(): Int { val s = handle ?: return 0xFFFFFFFF.toInt(); return ghostty_vt_default_fg_rgba(s).toInt() }
+    fun defaultBgRgba(): Int { val s = handle ?: return 0x000000FF; return ghostty_vt_default_bg_rgba(s).toInt() }
 
     // Persistent arenas for row text
     private var gridArena: ByteArray = ByteArray(4096)

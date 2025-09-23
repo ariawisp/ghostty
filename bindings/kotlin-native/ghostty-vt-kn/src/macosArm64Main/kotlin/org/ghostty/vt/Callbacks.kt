@@ -1,3 +1,4 @@
+@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
 package org.ghostty.vt
 
 import kotlinx.cinterop.*
@@ -25,5 +26,8 @@ internal object Callbacks {
         val sess = ud?.asStableRef<Session>()?.get() ?: return@staticCFunction
         sess._onBell()
     }
+    val paletteChangedCallback = staticCFunction { ud: COpaquePointer? ->
+        val sess = ud?.asStableRef<Session>()?.get() ?: return@staticCFunction
+        sess._onPaletteChanged()
+    }
 }
-
