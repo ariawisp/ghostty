@@ -32,6 +32,13 @@ const Session = struct {
     // optional writeback
     write_cb: WriteCb = null,
     write_ud: ?*c_void = null,
+    // optional events (title/clipboard/bell)
+    events: struct {
+        on_title: ?*const fn (*c_void, [*]const u8, usize) callconv(.C) void = null,
+        on_clipboard_set: ?*const fn (*c_void, [*]const u8, usize) callconv(.C) void = null,
+        on_bell: ?*const fn (*c_void) callconv(.C) void = null,
+        ud: ?*c_void = null,
+    } = .{},
     // per-screen fingerprint caches for precise dirty spans
     cache_primary: RowCache,
     cache_alt: RowCache,
@@ -59,6 +66,7 @@ const Session = struct {
             .stream = undefined, // initialized below
             .write_cb = null,
             .write_ud = null,
+            .events = .{},
             .cache_primary = try RowCache.init(alloc, rows, cols),
             .cache_alt = try RowCache.init(alloc, rows, cols),
         };
@@ -87,7 +95,9 @@ const Handler = struct {
         try self.sess.term.printRepeat(count);
     }
     pub fn bell(self: *Handler) !void {
-        _ = self;
+        if (self.sess.events.on_bell) |cb| {
+            if (self.sess.events.ud) |ud| cb(ud);
+        }
     }
     pub fn backspace(self: *Handler) !void {
         self.sess.term.backspace();
@@ -175,6 +185,20 @@ const Handler = struct {
     // SGR
     pub fn setAttribute(self: *Handler, attr: vt.Attribute) !void {
         try self.sess.term.setAttribute(attr);
+    }
+
+    // OSC callbacks we care about
+    pub fn changeWindowTitle(self: *Handler, title: []const u8) !void {
+        if (self.sess.events.on_title) |cb| {
+            if (self.sess.events.ud) |ud| cb(ud, title.ptr, title.len);
+        }
+    }
+    pub fn clipboardContents(self: *Handler, kind: u8, data: []const u8) !void {
+        _ = kind;
+        if (data.len == 0) return;
+        if (self.sess.events.on_clipboard_set) |cb| {
+            if (self.sess.events.ud) |ud| cb(ud, data.ptr, data.len);
+        }
     }
 
     // Margins / scroll
@@ -359,6 +383,27 @@ export fn ghostty_vt_set_writer(h: ?*c_void, cb: WriteCb, ud: ?*c_void) callconv
     }
 }
 
+// Event registration (title/clipboard/bell)
+const EventsC = extern struct {
+    on_title: ?*const fn (*c_void, [*]const u8, usize) callconv(.C) void,
+    on_clipboard_set: ?*const fn (*c_void, [*]const u8, usize) callconv(.C) void,
+    on_bell: ?*const fn (*c_void) callconv(.C) void,
+};
+
+export fn ghostty_vt_set_events(h: ?*c_void, ev: ?*const EventsC, ud: ?*c_void) callconv(.C) void {
+    if (h) |ptr| {
+        const s: *Session = @ptrCast(@alignCast(ptr));
+        if (ev) |p| {
+            s.events.on_title = p.on_title;
+            s.events.on_clipboard_set = p.on_clipboard_set;
+            s.events.on_bell = p.on_bell;
+            s.events.ud = ud;
+        } else {
+            s.events = .{};
+        }
+    }
+}
+
 export fn ghostty_vt_resize(h: ?*c_void, cols: u16, rows: u16) callconv(.C) void {
     if (h) |ptr| {
         const s: *Session = @ptrCast(@alignCast(ptr));
@@ -390,6 +435,12 @@ export fn ghostty_vt_cols(h: ?*c_void) callconv(.C) u16 {
         return @intCast(s.term.cols);
     }
     return 0;
+}
+
+// API version query
+export fn ghostty_vt_c_api_version(out_major: ?*u16, out_minor: ?*u16) callconv(.C) void {
+    if (out_major) |p| p.* = 1;
+    if (out_minor) |p| p.* = 0;
 }
 
 export fn ghostty_vt_cursor_row(h: ?*c_void) callconv(.C) u16 {
@@ -667,7 +718,7 @@ export fn ghostty_vt_scrollback_row_cells_into(
 }
 
 fn write_link_uri(
-    term: *const vt.Terminal,
+    _: *const vt.Terminal,
     page: *const vt.page.Page,
     cell: *const vt.page.Cell,
     out: [*]u8,
@@ -709,7 +760,7 @@ export fn ghostty_vt_link_uri_scrollback(
 ) callconv(.C) bool {
     if (h == null) return false;
     const s: *Session = @ptrCast(@alignCast(h.?));
-    const pt: vt.point.Point = .{ .history = .{ .x = col, .y = index } };
+    const pt: vt.point.Point = .{ .history = .{ .x = col, .y = @intCast(index) } };
     const got = s.term.screen.pages.getCell(pt) orelse return false;
     return write_link_uri(&s.term, &got.node.data, got.cell, out_utf8, out_cap, out_len);
 }
@@ -840,4 +891,53 @@ fn compute_row_span_and_update(sess: *Session, row: u16, update_cache: bool, out
         return true;
     }
     return false;
+}
+
+// Mode/state queries for host input routing
+export fn ghostty_vt_mode_bracketed_paste(h: ?*c_void) callconv(.C) bool {
+    if (h) |ptr| {
+        const s: *Session = @ptrCast(@alignCast(ptr));
+        return s.term.modes.get(.bracketed_paste);
+    }
+    return false;
+}
+
+export fn ghostty_vt_mode_mouse_enabled(h: ?*c_void) callconv(.C) bool {
+    if (h) |ptr| {
+        const s: *Session = @ptrCast(@alignCast(ptr));
+        return s.term.flags.mouse_event != .none;
+    }
+    return false;
+}
+
+export fn ghostty_vt_mode_mouse_sgr(h: ?*c_void) callconv(.C) bool {
+    if (h) |ptr| {
+        const s: *Session = @ptrCast(@alignCast(ptr));
+        return s.term.flags.mouse_format == .sgr or s.term.flags.mouse_format == .sgr_pixels;
+    }
+    return false;
+}
+
+export fn ghostty_vt_mode_mouse_motion(h: ?*c_void) callconv(.C) bool {
+    if (h) |ptr| {
+        const s: *Session = @ptrCast(@alignCast(ptr));
+        return s.term.flags.mouse_event.motion();
+    }
+    return false;
+}
+
+export fn ghostty_vt_mode_mouse_any_motion(h: ?*c_void) callconv(.C) bool {
+    if (h) |ptr| {
+        const s: *Session = @ptrCast(@alignCast(ptr));
+        return s.term.flags.mouse_event == .any;
+    }
+    return false;
+}
+
+export fn ghostty_vt_kitty_keyboard_flags(h: ?*c_void) callconv(.C) u32 {
+    if (h) |ptr| {
+        const s: *Session = @ptrCast(@alignCast(ptr));
+        return s.term.screen.kitty_keyboard.current().int();
+    }
+    return 0;
 }

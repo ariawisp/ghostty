@@ -18,6 +18,11 @@ extern "C" {
 #include <stdint.h>
 #include <stdbool.h>
 
+// C API version for bindings to assert compatibility at runtime.
+#define GHOSTTY_VT_C_API_VERSION_MAJOR 1
+#define GHOSTTY_VT_C_API_VERSION_MINOR 0
+void ghostty_vt_c_api_version(uint16_t* out_major, uint16_t* out_minor);
+
 // Opaque session handle
 typedef void* ghostty_vt_t;
 
@@ -49,6 +54,15 @@ void         ghostty_vt_free(ghostty_vt_t);
 // Optional writer for replies
 void ghostty_vt_set_writer(ghostty_vt_t, ghostty_vt_write_cb cb, void* userdata);
 
+// Optional event callbacks for host-side integration (title, clipboard, bell)
+typedef struct ghostty_vt_events_s {
+  void (*on_title)(void* userdata, const char* utf8, size_t len);
+  void (*on_clipboard_set)(void* userdata, const char* utf8, size_t len);
+  void (*on_bell)(void* userdata);
+} ghostty_vt_events_t;
+
+void ghostty_vt_set_events(ghostty_vt_t, const ghostty_vt_events_t* events, void* userdata);
+
 // Resize viewport (cols, rows >= 1)
 void ghostty_vt_resize(ghostty_vt_t, uint16_t cols, uint16_t rows);
 
@@ -61,6 +75,14 @@ uint16_t ghostty_vt_cols(ghostty_vt_t);
 uint16_t ghostty_vt_cursor_row(ghostty_vt_t); // 0-based
 uint16_t ghostty_vt_cursor_col(ghostty_vt_t); // 0-based
 bool     ghostty_vt_is_alt_screen(ghostty_vt_t);
+
+// Mode/state queries (for input routing)
+bool     ghostty_vt_mode_bracketed_paste(ghostty_vt_t);
+bool     ghostty_vt_mode_mouse_enabled(ghostty_vt_t);      // any mouse mode active
+bool     ghostty_vt_mode_mouse_sgr(ghostty_vt_t);          // SGR or SGR-pixel format
+bool     ghostty_vt_mode_mouse_motion(ghostty_vt_t);       // button or any-motion modes
+bool     ghostty_vt_mode_mouse_any_motion(ghostty_vt_t);   // any-motion mode specifically
+uint32_t ghostty_vt_kitty_keyboard_flags(ghostty_vt_t);    // current kitty keyboard flags as bitmask
 
 // Dirtiness per visible row (active area)
 bool ghostty_vt_row_dirty(ghostty_vt_t, uint16_t row);
