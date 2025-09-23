@@ -66,6 +66,8 @@ bool     ghostty_vt_is_alt_screen(ghostty_vt_t);
 bool ghostty_vt_row_dirty(ghostty_vt_t, uint16_t row);
 void ghostty_vt_row_clear_dirty(ghostty_vt_t, uint16_t row);
 void ghostty_vt_clear_all_dirty(ghostty_vt_t);
+// Optional: return a coarse dirty span. For now, returns full row when dirty.
+bool ghostty_vt_row_dirty_span(ghostty_vt_t, uint16_t row, uint16_t* out_start, uint16_t* out_end);
 
 // Read one visible row into caller-allocated array. Returns number of cells
 // written (min of cols and out_cap). For each cell, the function allocates
@@ -73,9 +75,23 @@ void ghostty_vt_clear_all_dirty(ghostty_vt_t);
 size_t ghostty_vt_row_cells(ghostty_vt_t, uint16_t row, ghostty_vt_cell_t* out_cells, size_t out_cap);
 void   ghostty_vt_row_cells_free(ghostty_vt_cell_t* cells, size_t count);
 
+// Write row cells into caller-provided arena for text storage.
+// - Writes up to out_cap cells from the visible grid row.
+// - Writes UTF-8 text contiguously into `text_arena`; sets `*out_arena_used` to total bytes written.
+// - Cell.text pointers point into `text_arena` for non-empty text; empty texts have len=0 and text="".
+// Returns the number of cells written (<= out_cap).
+size_t ghostty_vt_row_cells_into(
+    ghostty_vt_t,
+    uint16_t row,
+    ghostty_vt_cell_t* out_cells,
+    size_t out_cap,
+    char* text_arena,
+    size_t arena_cap,
+    size_t* out_arena_used
+);
+
 #ifdef __cplusplus
 }
 #endif
 
 #endif // GHOSTTY_VT_C_H
-
